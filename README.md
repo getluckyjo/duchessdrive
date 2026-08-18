@@ -1,70 +1,64 @@
-# Duchess Drive → /Volumes/Duchess backup runbook
+# theduchess.co.za backup → /Volumes/Duchess
 
-Pulls the Google Workspace Drive for **johannes@theduchess.co.za** (~621 GB) down to an
-external disk mounted at `/Volumes/Duchess`, using rclone.
+Pulls **Drive and Gmail for the 4 active accounts** in the theduchess.co.za
+Workspace org onto an external disk. Everything here runs **on your Mac**.
 
-Everything here runs **on your Mac**. Nothing in this repo runs the transfer for you.
+## What is actually being copied
 
----
+The "621 GB" figure is the whole org across 18 accounts and three domains, and
+183 GB of it is Gmail, which rclone cannot touch. The real shape:
 
-## Why your sign-in got stuck
+| | Drive | Gmail | Total |
+|---|---|---|---|
+| **4 Active accounts** — this backup | 265.81 GB | 109.55 GB | **375.36 GB** |
+| 14 Archived accounts — *not covered* | 171.87 GB | 73.82 GB | 245.69 GB |
+| All 18 | 437.68 GB | 183.37 GB | 621.06 GB |
 
-Almost certainly one of these two, and the fix for both is the same:
+In scope, from `accounts.tsv`:
 
-1. **rclone's shared client ID is being retired and stops working during 2026.**
-   rclone ships with a built-in OAuth client that everyone shares. Google is
-   retiring it, and it is already failing for many users. If you left
-   `client_id` blank during `rclone config`, this is your problem.
+| Account | Drive | Gmail |
+|---|---|---|
+| `inus@theduchess.co.za` | 231.08 GB | 44.58 GB |
+| `johannes@theduchess.co.za` | 33.03 GB | 50.14 GB |
+| `sebastian@drinkdope.com` | 1.47 GB | 5.43 GB |
+| `johannes@drinkdope.com` | 0.23 GB | 9.40 GB |
 
-2. **Workspace blocks unverified third-party apps.** A Workspace admin can
-   restrict which OAuth apps users may authorise (Admin console → Security →
-   Access and data control → API controls). rclone is not on the trusted list
-   by default, so the sign-in page dead-ends with "Access blocked".
+Shared Drives are extra — their content is not counted in any user's storage
+figure, so `02-inventory.sh` may turn up data beyond the 375 GB above.
 
-**The fix: create your own OAuth client inside the theduchess.co.za
-organisation, as an Internal app.** An Internal app is first-party to your own
-Workspace — it is not subject to the third-party app block, needs no Google
-verification review, and (importantly) does not expire its refresh token after
-7 days the way an External app left in "Testing" does. A 621 GB transfer can
-easily run longer than a day, and a token that dies mid-run is miserable.
+**Not covered: the 14 archived accounts**, including `design@theduchess.co.za`
+(135.55 GB of Drive) and `tania@theduchess.co.za` (28.31 GB). Archived users
+cannot sign in, so there is no session to impersonate. Getting that data means
+re-licensing each account to un-archive it, or exporting through Vault. Decide
+that separately — and note the Workspace subscription is already cancelled, so
+whatever retention clock applies to it is running.
 
----
+## The situation this works around
 
-## Step 1 — Create the OAuth client (~10 minutes, browser)
+The Workspace subscription for the org is cancelled. What is still billed is an
+**Archived User** subscription covering the other 14 accounts — a data-retention
+SKU, not a service licence. The four accounts here are Active but unlicensed,
+sitting on the 15 GB free tier while holding far more than that.
 
-Sign in to <https://console.cloud.google.com/> **as johannes@theduchess.co.za**.
-This matters: the Cloud project must belong to the theduchess.co.za
-organisation, or the "Internal" option will not be offered.
-
-1. Create a new project (top-left project picker → **New Project**). Name it
-   something like `duchess-drive-backup`. Confirm the **Organization** field
-   reads `theduchess.co.za` — if it says "No organization", you are signed in
-   with the wrong account, or you lack permission to create projects in the org
-   (ask a super admin to create it and grant you Editor).
-2. **APIs & Services → Library** → search **Google Drive API** → **Enable**.
-3. **APIs & Services → OAuth consent screen** (newer consoles call this
-   *Google Auth Platform*) → **Get started**.
-   - App name: `rclone-duchess-backup`
-   - User support email: your address
-   - **Audience: Internal** ← this is the important one
-   - Contact email, agree, **Create**.
-4. **Data access → Add or remove scopes** → add:
-   - `https://www.googleapis.com/auth/drive.readonly`
-
-   Read-only is deliberate. You are pulling a backup down; rclone should have
-   no ability to modify or delete anything in the live Drive.
-5. **Clients → Create client** → Application type: **Desktop app** → **Create**.
-6. Copy the **Client ID** and **Client secret**. You will paste them in Step 3.
-
-Because the app is Internal, there is no "Publish app" step and no test-user
-list to manage. Skip both.
-
-> If your account cannot create the project or cannot select Internal, you need
-> a theduchess.co.za super admin to do Step 1 for you. There is no way around
-> it — the alternative (External + Testing) gives you a token that dies after 7
-> days, which will strand a transfer this size.
+Google blocks *uploads* when an account is over quota but normally still serves
+reads. This whole backup rests on that. `00-check-access.sh` proves it before
+you spend a night on a transfer that cannot finish.
 
 ---
+
+## Step 1 — Prove reads still work
+
+```bash
+./scripts/00-check-access.sh
+```
+
+Uses whatever remote you already have. It reads the quota, lists My Drive, and
+— the part that matters — downloads one real file.
+
+**Green:** carry on. **Red:** if the errors mention quota, storage, or a
+cancelled subscription, rclone cannot help and the data has to come out by
+re-subscribing or through Vault. Send me the exact error before doing anything
+else.
 
 ## Step 2 — Preflight the disk
 
@@ -72,128 +66,110 @@ list to manage. Skip both.
 ./scripts/00-preflight.sh
 ```
 
-This checks rclone's version, that `/Volumes/Duchess` is mounted and writable,
-how much free space it has, and — the two that actually bite:
+Checks rclone, the mount, free space, filesystem and case sensitivity.
 
-- **Filesystem.** If the disk is **FAT32**, stop: no file over 4 GB can be
-  written. Reformat as **APFS** (or **exFAT** if the disk must also be readable
-  on Windows). Reformatting erases the disk.
-- **Case sensitivity.** APFS and HFS+ are case-*insensitive* by default. Google
-  Drive is case-*sensitive*, so it can hold `Invoice.pdf` and `invoice.pdf` in
-  one folder. On a case-insensitive disk one silently overwrites the other.
-  The preflight tells you which you have; the verify step in Step 6 catches any
-  collisions that actually occurred.
+The disk is **exFAT**, which is fine — but it has no journal, so **always eject
+properly** (`diskutil eject /Volumes/Duchess`) and never pull the cable
+mid-write. An unclean unmount during a multi-hour transfer can cost you the
+volume, not just the file in flight.
 
----
+## Step 3 — Service account + domain-wide delegation
 
-## Step 3 — Configure the rclone remote
+You need `inus@`'s Drive, and you are not going to ask them for a password. As
+super admin you can authorise one service account to read every mailbox and
+Drive in the org.
+
+**In the Cloud console** (same `duchess-drive-backup` project, signed in as
+`johannes@theduchess.co.za`):
+
+1. **APIs & Services → Library** → enable **Google Drive API** *and* **Gmail API**.
+2. **IAM & Admin → Service Accounts → Create service account**. Name it
+   `duchess-backup`. Skip the optional role and user grants.
+3. Open it → **Keys → Add key → Create new key → JSON**. It downloads once.
+4. Still on the service account, copy its **Unique ID** — the long *numeric*
+   client ID, not the email address.
+
+**In the Admin console** (`admin.google.com`):
+
+5. **Security → Access and data control → API controls → Manage Domain Wide
+   Delegation → Add new**.
+6. Paste the numeric client ID, and add both scopes, comma-separated:
+
+```
+https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/gmail.readonly
+```
+
+7. **Authorize**.
+
+**On your Mac**, put the key where the scripts expect it:
+
+```bash
+mkdir -p ~/.config/duchess-backup
+mv ~/Downloads/duchess-backup-*.json ~/.config/duchess-backup/service-account.json
+chmod 600 ~/.config/duchess-backup/service-account.json
+```
+
+Both scopes are read-only. The service account can copy everything and change
+nothing. The key file is a credential that opens every mailbox in the org —
+keep it off the backup disk and out of this repo.
 
 ```bash
 ./scripts/01-configure-remote.sh
 ```
 
-It prompts for the client ID and secret from Step 1, creates a remote called
-`duchess` with `drive.readonly` scope, and opens your browser for the Google
-sign-in. Sign in as **johannes@theduchess.co.za** and grant access.
+Rebuilds the rclone remote from the key and checks all four accounts. A failure
+here is almost always a scope that was not authorised in step 6.
 
-If the browser does not open or the page hangs on `127.0.0.1:53682`, re-run
-`rclone config` manually and answer **n** to "Use web browser to automatically
-authenticate?". rclone then prints an exact `rclone authorize` command to run
-on any machine that does have a working browser, and you paste the resulting
-token back.
-
-The script finishes by calling `rclone about duchess:` — if that prints your
-quota, the auth is genuinely working.
-
----
-
-## Step 4 — Inventory before you copy
+## Step 4 — Inventory
 
 ```bash
 ./scripts/02-inventory.sh
 ```
 
-Writes `inventory/` with:
+Per-account quota, Shared Drives, and a real measurement of each Drive. Review
+`inventory/shared-drives.tsv` — delete any line you do not want copied.
 
-- total quota and usage (`rclone about`)
-- top-level folders in My Drive
-- **every Shared Drive** the account can see, into `inventory/shared-drives.tsv`
-
-This step exists because "621 GB" is probably the org's total. My Drive and
-each Shared Drive are separate roots in the Drive API — a plain `rclone copy
-duchess:` gets **My Drive only** and will silently miss every Shared Drive.
-Check the TSV before you start, and delete any line you do not want copied.
-
-`rclone size duchess: --fast-list` is also run; on a Drive this large it can
-take 10–30 minutes, so it is the last thing the script does and you can Ctrl-C
-it once you have seen the rest.
-
----
-
-## Step 5 — Run the transfer
+## Step 5 — Copy
 
 ```bash
-./scripts/03-copy.sh
+./scripts/03-copy-drive.sh     # ~266 GB
+./scripts/05-copy-gmail.sh     # ~110 GB, needs GYB installed
 ```
 
-Copies, in order:
+Both are resumable — Ctrl-C and re-run. Both wrap themselves in `caffeinate`.
+**Keep the lid open**; caffeinate cannot stop clamshell sleep.
 
-| Source | Lands in |
-|---|---|
-| My Drive | `/Volumes/Duchess/theduchess-backup/my-drive/` |
-| each Shared Drive in the TSV | `/Volumes/Duchess/theduchess-backup/shared-drives/<name>/` |
-| Shared with me *(only if `INCLUDE_SHARED_WITH_ME=1`)* | `/Volumes/Duchess/theduchess-backup/shared-with-me/` |
+Lands as:
 
-It wraps the run in `caffeinate` so the Mac will not idle-sleep mid-transfer.
+```
+/Volumes/Duchess/theduchess-backup/
+  drive/<email>/
+  gmail/<email>/
+  shared-drives/<name>/
+```
 
-**Keep the laptop lid open.** `caffeinate` cannot stop clamshell sleep — closing
-the lid on battery or without an external display will suspend the machine and
-stall the transfer. It will resume when you wake it, but it is cleaner not to.
+Gmail needs **GYB (Got Your Back)** from
+<https://github.com/GAM-team/got-your-back/releases> — rclone has no mail
+backend. GYB uses the same service account and writes one `.eml` per message.
+`05-copy-gmail.sh` tells you this if it is missing.
 
-**How long.** 621 GB, roughly:
+At 100 Mbit/s, 375 GB is roughly 9 hours. Assume slower — small files never hit
+line rate, and a 231 GB Drive of small files is the slow case.
 
-| Your download speed | Wall clock |
-|---|---|
-| 50 Mbit/s | ~28 hours |
-| 100 Mbit/s | ~14 hours |
-| 200 Mbit/s | ~7 hours |
-| 500 Mbit/s | ~3 hours |
-
-Assume slower — many small files transfer well below line rate.
-
-**It is safe to interrupt.** Ctrl-C, then re-run the same script. `rclone copy`
-skips files already present with matching size and modtime, so a restart picks
-up where it left off. Nothing on the Google side is ever modified (read-only
-scope).
-
-Useful knobs, all environment variables:
+Knobs:
 
 ```bash
-TRANSFERS=4 ./scripts/03-copy.sh          # gentler on a spinning USB disk
-BWLIMIT="08:00,2M 18:00,off" ./scripts/03-copy.sh   # throttle during work hours
-INCLUDE_SHARED_WITH_ME=1 ./scripts/03-copy.sh
+TRANSFERS=4 ./scripts/03-copy-drive.sh
+BWLIMIT="08:00,2M 18:00,off" ./scripts/03-copy-drive.sh
 ```
 
-Logs go to `~/duchess-backup/logs/`.
+Logs in `~/duchess-backup/logs/`.
 
-### About Google Docs, Sheets and Slides
+### Google Docs, Sheets and Slides
 
-Native Google files have no downloadable bytes — rclone exports them. This
-runbook uses the default `docx,xlsx,pptx,svg`. So a Google Sheet becomes an
-`.xlsx`. These exports are conversions, not fidelity-perfect copies: comments,
-revision history, and some formatting do not survive. If you need true
-archival copies of the native docs, that is a separate job (Google Takeout
-preserves more), and worth flagging before you rely on this backup for them.
-
-### Files Google refuses to serve
-
-Some files (often `.exe`, `.apk`, archives) return `cannotDownloadAbusiveFile`.
-The scripts pass `--drive-acknowledge-abuse` to download them anyway. Note that
-some rclone builds only honour this with the full `drive` scope rather than
-`drive.readonly`; if you still see those errors in the log, that is the reason,
-and the fix is to re-run `01-configure-remote.sh` with `SCOPE=drive`.
-
----
+Native Google files have no downloadable bytes; rclone exports them, so a Sheet
+becomes an `.xlsx`. Comments and revision history do not survive. If you need
+faithful archival copies of the native docs, that is a different job.
 
 ## Step 6 — Verify
 
@@ -201,28 +177,25 @@ and the fix is to re-run `01-configure-remote.sh` with `SCOPE=drive`.
 ./scripts/04-verify.sh
 ```
 
-Runs `rclone check --one-way`, which compares **MD5 hashes** of every file on
-both sides — a real integrity check, not just a file count. Google-native docs
-are excluded (`--drive-skip-gdocs`) because their exported form legitimately
-has a different hash than the source.
-
-Read the summary at the end of `~/duchess-backup/logs/verify-*.log`. Zero
-differences means the backup is byte-for-byte good. Any listed differences are
-worth investigating before you trust the disk — case-collisions from Step 2
-show up here.
+MD5-compares every Drive file against the live account (Google-native docs
+excluded, since their exported form legitimately differs), and counts the `.eml`
+files per mailbox.
 
 ---
 
-## Quick reference
+## Files
 
-```bash
-rclone about duchess:                       # quota / usage
-rclone backend drives duchess:              # list Shared Drives
-rclone size duchess: --fast-list            # measure My Drive
-rclone ls duchess: --max-depth 1            # peek
-rclone config file                          # where the config lives
-```
+| | |
+|---|---|
+| `accounts.tsv` | Who gets backed up. Delete a line to skip. |
+| `scripts/00-check-access.sh` | Proves reads still work. Run first. |
+| `scripts/00-preflight.sh` | Disk and tooling checks. |
+| `scripts/01-configure-remote.sh` | rclone remote from the service account. |
+| `scripts/02-inventory.sh` | Sizes, Shared Drives. |
+| `scripts/03-copy-drive.sh` | Drive, all accounts. |
+| `scripts/05-copy-gmail.sh` | Gmail, all accounts, via GYB. |
+| `scripts/04-verify.sh` | MD5 check + message counts. |
 
-The rclone config (including your OAuth token) lives at
-`~/.config/rclone/rclone.conf`. **It is a credential — do not commit it to this
-repo or copy it to the backup disk.**
+The rclone config lives at `~/.config/rclone/rclone.conf` and the service
+account key at `~/.config/duchess-backup/service-account.json`. **Both are
+credentials — not in this repo, not on the backup disk.**

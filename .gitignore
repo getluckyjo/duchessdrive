@@ -1,5 +1,7 @@
 # Never commit rclone credentials or tokens
 rclone.conf
+service-account*.json
+oauth2service.json
 *.conf
 
 # Inventory output is account-specific; keep the directory, not the contents

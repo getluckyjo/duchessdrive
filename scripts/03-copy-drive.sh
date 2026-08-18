@@ -1,24 +1,21 @@
 #!/usr/bin/env bash
-# The transfer. Resumable: Ctrl-C and re-run whenever you like.
+# Drive for every account in accounts.tsv, ~266 GB. Resumable: Ctrl-C, re-run.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 . scripts/common.sh
 
-INCLUDE_SHARED_WITH_ME="${INCLUDE_SHARED_WITH_ME:-0}"
 TSV="$INVENTORY_DIR/shared-drives.tsv"
 
-# Keep the Mac awake for the duration. Re-exec self under caffeinate once.
+# Keep the Mac awake. Re-exec self under caffeinate once.
 if [ -z "${UNDER_CAFFEINATE:-}" ] && command -v caffeinate >/dev/null 2>&1; then
   UNDER_CAFFEINATE=1 exec caffeinate -dims "$0" "$@"
 fi
 
-need_rclone
-need_remote
-need_disk
-mkdir -p "$LOG_DIR" "$BACKUP_DIR"
+need_rclone; need_remote; need_sa; need_disk; need_accounts
+mkdir -p "$LOG_DIR" "$BACKUP_DIR/drive"
 
 RUN="$(timestamp)"
-LOG="$LOG_DIR/copy-$RUN.log"
+LOG="$LOG_DIR/drive-$RUN.log"
 failures=0
 
 FLAGS=(
@@ -55,32 +52,31 @@ do_copy() { # label, dest subdir, extra rclone args...
 
 say "Run $RUN   log: $LOG"
 echo "     Leave the lid OPEN - caffeinate cannot prevent clamshell sleep."
-echo "     Safe to Ctrl-C; re-run this script to resume."
+echo "     Eject the disk properly when done; exFAT has no journal."
 
-do_copy "My Drive" "my-drive"
+copy_account() {
+  email="$1"; dgb="$2"
+  do_copy "Drive: $email (~${dgb} GB)" "drive/$(safe_name "$email")" --drive-impersonate "$email"
+}
+for_each_account copy_account
 
 if [ -s "$TSV" ]; then
-  while IFS=$'\t' read -r id name <&3; do
+  ADMIN="$(awk -F'\t' '!/^#/ && $1 != "" {print $1; exit}' "$ACCOUNTS")"
+  while IFS="$(printf '\t')" read -r id name <&3; do
     case "$id" in ''|\#*) continue ;; esac
     [ -n "$name" ] || name="$id"
-    safe="$(printf '%s' "$name" | tr '/:' '__')"
-    do_copy "Shared Drive: $name" "shared-drives/$safe" --drive-team-drive "$id"
+    do_copy "Shared Drive: $name" "shared-drives/$(safe_name "$name")" \
+      --drive-impersonate "$ADMIN" --drive-team-drive "$id"
   done 3< "$TSV"
 else
-  warn "No Shared Drives listed in $TSV - skipping. Run scripts/02-inventory.sh if that seems wrong."
-fi
-
-if [ "$INCLUDE_SHARED_WITH_ME" = "1" ]; then
-  do_copy "Shared with me" "shared-with-me" --drive-shared-with-me
-else
-  say "Skipping 'Shared with me' (set INCLUDE_SHARED_WITH_ME=1 to include it)"
+  say "No Shared Drives listed - skipping (run 02-inventory.sh if that seems wrong)"
 fi
 
 echo
 if [ "$failures" -eq 0 ]; then
-  say "All sections copied cleanly. Next: ./scripts/04-verify.sh"
+  say "Drive done. Next: ./scripts/05-copy-gmail.sh, then ./scripts/04-verify.sh"
 else
-  say "$failures section(s) reported errors. Re-run this script to retry only what is missing,"
-  say "then check $LOG for anything that keeps failing."
+  say "$failures section(s) reported errors. Re-run to retry only what is missing,"
+  say "then read $LOG for anything that keeps failing."
   exit 1
 fi

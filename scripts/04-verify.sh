@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# MD5-compares every copied file against the live Drive.
+# MD5-compares every copied Drive file against the live account, and counts
+# the Gmail messages on disk against what the mailbox reports.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 . scripts/common.sh
 
 TSV="$INVENTORY_DIR/shared-drives.tsv"
 
-need_rclone
-need_remote
-need_disk
+need_rclone; need_remote; need_sa; need_disk; need_accounts
 mkdir -p "$LOG_DIR"
 
 RUN="$(timestamp)"
@@ -29,7 +28,7 @@ do_check() { # label, dest subdir, extra rclone args...
   label="$1"; sub="$2"; shift 2
   dest="$BACKUP_DIR/$sub"
   if [ ! -d "$dest" ]; then
-    warn "$label: $dest does not exist - not copied yet, skipping"
+    warn "$label: not copied yet, skipping"
     return
   fi
   echo
@@ -43,31 +42,47 @@ do_check() { # label, dest subdir, extra rclone args...
 }
 
 say "Run $RUN   log: $LOG"
-echo "     Compares MD5 hashes both sides. Google-native docs are excluded:"
-echo "     their exported .docx/.xlsx legitimately differs from the source."
+echo "     Drive files are compared by MD5. Google-native docs are excluded:"
+echo "     an exported .docx legitimately differs from the Google Doc."
 
-do_check "My Drive" "my-drive"
+check_account() {
+  email="$1"
+  do_check "Drive: $email" "drive/$(safe_name "$email")" --drive-impersonate "$email"
+}
+for_each_account check_account
 
 if [ -s "$TSV" ]; then
-  while IFS=$'\t' read -r id name <&3; do
+  ADMIN="$(awk -F'\t' '!/^#/ && $1 != "" {print $1; exit}' "$ACCOUNTS")"
+  while IFS="$(printf '\t')" read -r id name <&3; do
     case "$id" in ''|\#*) continue ;; esac
     [ -n "$name" ] || name="$id"
-    safe="$(printf '%s' "$name" | tr '/:' '__')"
-    do_check "Shared Drive: $name" "shared-drives/$safe" --drive-team-drive "$id"
+    do_check "Shared Drive: $name" "shared-drives/$(safe_name "$name")" \
+      --drive-impersonate "$ADMIN" --drive-team-drive "$id"
   done 3< "$TSV"
 fi
 
-if [ -d "$BACKUP_DIR/shared-with-me" ]; then
-  do_check "Shared with me" "shared-with-me" --drive-shared-with-me
-fi
+echo
+say "Gmail message counts"
+gmail_count() {
+  email="$1"
+  dest="$BACKUP_DIR/gmail/$(safe_name "$email")"
+  if [ ! -d "$dest" ]; then
+    warn "$email: no Gmail backup yet"
+    return
+  fi
+  n="$(find "$dest" -name '*.eml' -type f 2>/dev/null | wc -l | tr -d ' ')"
+  printf '  %-32s %s messages on disk\n' "$email" "$n"
+}
+for_each_account gmail_count
+echo "     Compare against 'gyb --action estimate --email <address> --service-account"
+echo "     --config-folder $GYB_CONFIG' if you want the server-side count."
 
 echo
 if [ "$diffs" -eq 0 ]; then
-  say "Verified. Every non-Google-native file matches by MD5."
+  say "Drive verified. Every non-Google-native file matches by MD5."
 else
   say "$diffs section(s) reported differences."
-  say "Re-run ./scripts/03-copy.sh to fill gaps, then verify again."
-  say "Differences that survive a re-copy are worth reading in $LOG -"
-  say "case-insensitive-filesystem collisions show up here."
+  say "Re-run 03-copy-drive.sh to fill gaps, then verify again. Differences that"
+  say "survive a re-copy are worth reading in $LOG - case-collisions land here."
   exit 1
 fi
