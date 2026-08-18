@@ -1,0 +1,9 @@
+# Never commit rclone credentials or tokens
+rclone.conf
+*.conf
+
+# Inventory output is account-specific; keep the directory, not the contents
+inventory/*
+!inventory/.gitkeep
+
+logs/
