@@ -39,10 +39,18 @@ case "$CLIENT_ID" in
   *) warn "That does not look like a Google client ID (expected ...apps.googleusercontent.com)." ;;
 esac
 
+echo
+echo "Client secret (starts GOCSPX-). Nothing will appear as you paste -"
+echo "input is hidden on purpose. Paste it and press Return."
 printf 'Client secret: '
 read -rs CLIENT_SECRET
 echo
-[ -n "$CLIENT_SECRET" ] || die "Client secret is required."
+[ -n "$CLIENT_SECRET" ] || die "Client secret is required - nothing was entered. Re-run this script and paste it at the prompt."
+ok "got a secret, ${#CLIENT_SECRET} characters"
+case "$CLIENT_SECRET" in
+  GOCSPX-*) ;;
+  *) warn "That does not start with 'GOCSPX-'. If the sign-in fails, check you pasted the secret and not the client ID." ;;
+esac
 
 say "Creating remote '${REMOTE}' with scope '${SCOPE}'"
 echo "     A browser window will open. Sign in as johannes@theduchess.co.za."
