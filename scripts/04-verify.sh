@@ -7,7 +7,16 @@ cd "$(dirname "$0")/.."
 
 TSV="$INVENTORY_DIR/shared-drives.tsv"
 
-need_rclone; need_remote; need_sa; need_disk; need_accounts
+need_rclone; need_remote; need_disk; need_accounts
+# Impersonation requires a service account; a plain OAuth remote can only see
+# the account that signed in.
+if rclone config show "$REMOTE" 2>/dev/null | grep -q '^service_account_file'; then
+  MODE=delegated
+else
+  MODE=self
+  SELF_EMAIL="${SELF_EMAIL:-johannes@theduchess.co.za}"
+fi
+
 mkdir -p "$LOG_DIR"
 
 RUN="$(timestamp)"
@@ -45,19 +54,28 @@ say "Run $RUN   log: $LOG"
 echo "     Drive files are compared by MD5. Google-native docs are excluded:"
 echo "     an exported .docx legitimately differs from the Google Doc."
 
-check_account() {
-  email="$1"
-  do_check "Drive: $email" "drive/$(safe_name "$email")" --drive-impersonate "$email"
-}
-for_each_account check_account
+if [ "$MODE" = delegated ]; then
+  check_account() {
+    email="$1"
+    do_check "Drive: $email" "drive/$(safe_name "$email")" --drive-impersonate "$email"
+  }
+  for_each_account check_account
+else
+  warn "OAuth remote - checking only $SELF_EMAIL"
+  do_check "Drive: $SELF_EMAIL" "drive/$(safe_name "$SELF_EMAIL")"
+fi
 
 if [ -s "$TSV" ]; then
   ADMIN="$(awk -F'\t' '!/^#/ && $1 != "" {print $1; exit}' "$ACCOUNTS")"
   while IFS="$(printf '\t')" read -r id name <&3; do
     case "$id" in ''|\#*) continue ;; esac
     [ -n "$name" ] || name="$id"
-    do_check "Shared Drive: $name" "shared-drives/$(safe_name "$name")" \
-      --drive-impersonate "$ADMIN" --drive-team-drive "$id"
+    if [ "$MODE" = delegated ]; then
+      do_check "Shared Drive: $name" "shared-drives/$(safe_name "$name")" \
+        --drive-impersonate "$ADMIN" --drive-team-drive "$id"
+    else
+      do_check "Shared Drive: $name" "shared-drives/$(safe_name "$name")" --drive-team-drive "$id"
+    fi
   done 3< "$TSV"
 fi
 

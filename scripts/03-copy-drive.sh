@@ -11,7 +11,17 @@ if [ -z "${UNDER_CAFFEINATE:-}" ] && command -v caffeinate >/dev/null 2>&1; then
   UNDER_CAFFEINATE=1 exec caffeinate -dims "$0" "$@"
 fi
 
-need_rclone; need_remote; need_sa; need_disk; need_accounts
+need_rclone; need_remote; need_disk; need_accounts
+
+# Impersonation requires a service account. With a plain OAuth remote we can
+# only reach the one account that signed in - still worth running, since that
+# is bytes on the disk tonight rather than waiting for delegation.
+if rclone config show "$REMOTE" 2>/dev/null | grep -q '^service_account_file'; then
+  MODE=delegated
+else
+  MODE=self
+  SELF_EMAIL="${SELF_EMAIL:-johannes@theduchess.co.za}"
+fi
 mkdir -p "$LOG_DIR" "$BACKUP_DIR/drive"
 
 RUN="$(timestamp)"
@@ -54,19 +64,29 @@ say "Run $RUN   log: $LOG"
 echo "     Leave the lid OPEN - caffeinate cannot prevent clamshell sleep."
 echo "     Eject the disk properly when done; exFAT has no journal."
 
-copy_account() {
-  email="$1"; dgb="$2"
-  do_copy "Drive: $email (~${dgb} GB)" "drive/$(safe_name "$email")" --drive-impersonate "$email"
-}
-for_each_account copy_account
+if [ "$MODE" = delegated ]; then
+  copy_account() {
+    email="$1"; dgb="$2"
+    do_copy "Drive: $email (~${dgb} GB)" "drive/$(safe_name "$email")" --drive-impersonate "$email"
+  }
+  for_each_account copy_account
+else
+  warn "OAuth remote, not a service account - copying only $SELF_EMAIL."
+  warn "The other accounts need delegation (README step 3); re-run this after."
+  do_copy "Drive: $SELF_EMAIL" "drive/$(safe_name "$SELF_EMAIL")"
+fi
 
 if [ -s "$TSV" ]; then
   ADMIN="$(awk -F'\t' '!/^#/ && $1 != "" {print $1; exit}' "$ACCOUNTS")"
   while IFS="$(printf '\t')" read -r id name <&3; do
     case "$id" in ''|\#*) continue ;; esac
     [ -n "$name" ] || name="$id"
-    do_copy "Shared Drive: $name" "shared-drives/$(safe_name "$name")" \
-      --drive-impersonate "$ADMIN" --drive-team-drive "$id"
+    if [ "$MODE" = delegated ]; then
+      do_copy "Shared Drive: $name" "shared-drives/$(safe_name "$name")" \
+        --drive-impersonate "$ADMIN" --drive-team-drive "$id"
+    else
+      do_copy "Shared Drive: $name" "shared-drives/$(safe_name "$name")" --drive-team-drive "$id"
+    fi
   done 3< "$TSV"
 else
   say "No Shared Drives listed - skipping (run 02-inventory.sh if that seems wrong)"
