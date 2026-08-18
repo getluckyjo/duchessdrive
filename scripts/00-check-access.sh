@@ -15,23 +15,29 @@ need_rclone
 
 TARGET="${1:-}"
 if [ -z "$TARGET" ]; then
-  if rclone listremotes 2>/dev/null | grep -qx "${REMOTE}:"; then
-    say "Testing existing remote '${REMOTE}:' (whichever account it is authorised as)"
-  else
-    die "No remote '${REMOTE}:' yet. Run scripts/01-configure-remote.sh, or pass an email to test with the service account."
-  fi
+  rclone listremotes 2>/dev/null | grep -qx "${REMOTE}:" \
+    || die "No remote '${REMOTE}:' yet. Run scripts/01-configure-remote.sh, or pass an email to test with the service account."
+  say "Testing existing remote '${REMOTE}:' (whichever account it is authorised as)"
 else
   need_sa
   say "Testing '${REMOTE}:' impersonating $TARGET"
 fi
 
-IMP=()
-[ -n "$TARGET" ] && IMP=(--drive-impersonate "$TARGET")
+# rclone, with impersonation only when an account was named. Deliberately not an
+# array: macOS ships bash 3.2, where expanding an empty array under `set -u` is
+# an error rather than the empty list every later bash gives you.
+rc() {
+  if [ -n "$TARGET" ]; then
+    rclone "$@" --drive-impersonate "$TARGET"
+  else
+    rclone "$@"
+  fi
+}
 
 fail=0
 
 say "1. Can we read the account's quota?"
-if rclone about "${REMOTE}:" "${IMP[@]}" 2>&1; then
+if rc about "${REMOTE}:" 2>&1; then
   ok "quota readable - the Drive API is answering"
 else
   warn "rclone about failed"
@@ -40,7 +46,7 @@ fi
 
 echo
 say "2. Can we list the top level of My Drive?"
-if rclone lsd "${REMOTE}:" "${IMP[@]}" --max-depth 1 2>&1 | head -20; then
+if rc lsd "${REMOTE}:" --max-depth 1 2>&1 | head -20; then
   ok "listing works"
 else
   warn "listing failed"
@@ -50,12 +56,12 @@ fi
 echo
 say "3. Can we actually download a file? (the one that really matters)"
 probe="$(mktemp -d)"
-first="$(rclone lsf "${REMOTE}:" "${IMP[@]}" --files-only --max-depth 2 2>/dev/null | head -1)"
+first="$(rc lsf "${REMOTE}:" --files-only --max-depth 2 2>/dev/null | head -1)"
 if [ -z "$first" ]; then
   warn "No file found in the first two levels to test with - inconclusive, not a failure."
 else
   echo "     trying: $first"
-  if rclone copy "${REMOTE}:$first" "$probe" "${IMP[@]}" --retries 1 --low-level-retries 2 2>&1; then
+  if rc copy "${REMOTE}:$first" "$probe" --retries 1 --low-level-retries 2 2>&1; then
     got="$(find "$probe" -type f | head -1)"
     if [ -n "$got" ]; then
       ok "downloaded $(wc -c < "$got" | tr -d ' ') bytes - reads are permitted over quota"
