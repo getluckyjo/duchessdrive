@@ -61,8 +61,11 @@ gmail_one() {
          --config-folder "$GYB_CONFIG" --local-folder "$dest" 2>&1 | tee -a "$LOG"; then
     ok "$email complete"
   else
-    warn "$email finished with errors - see $LOG"
-    failures=$((failures+1))
+    code=$?
+    case "$code" in
+      130|143) warn "$email interrupted by you (exit $code) - re-run to resume." ;;
+      *) warn "$email finished with errors - see $LOG"; failures=$((failures+1)) ;;
+    esac
   fi
 }
 for_each_account gmail_one

@@ -45,8 +45,11 @@ do_check() { # label, dest subdir, extra rclone args...
   if rclone check "${REMOTE}:" "$dest" "${FLAGS[@]}" "$@" </dev/null; then
     ok "$label matches"
   else
-    warn "$label has differences - see $LOG"
-    diffs=$((diffs+1))
+    code=$?
+    case "$code" in
+      130|143) warn "$label interrupted by you (exit $code) - not a difference." ;;
+      *) warn "$label has differences - see $LOG"; diffs=$((diffs+1)) ;;
+    esac
   fi
 }
 

@@ -27,6 +27,7 @@ mkdir -p "$LOG_DIR" "$BACKUP_DIR/drive"
 RUN="$(timestamp)"
 LOG="$LOG_DIR/drive-$RUN.log"
 failures=0
+interrupted=0
 
 FLAGS=(
   --create-empty-src-dirs
@@ -55,8 +56,16 @@ do_copy() { # label, dest subdir, extra rclone args...
   if rclone copy "${REMOTE}:" "$dest" "${FLAGS[@]}" "$@" </dev/null; then
     ok "$label complete"
   else
-    warn "$label finished with errors (rclone exit $?). Details in $LOG"
-    failures=$((failures+1))
+    code=$?
+    case "$code" in
+      130|143)
+        warn "$label interrupted by you (exit $code) - not an error."
+        warn "Everything transferred so far is on the disk. Re-run to resume."
+        interrupted=1 ;;
+      *)
+        warn "$label finished with errors (rclone exit $code). Details in $LOG"
+        failures=$((failures+1)) ;;
+    esac
   fi
 }
 
@@ -93,7 +102,11 @@ else
 fi
 
 echo
-if [ "$failures" -eq 0 ]; then
+if [ "$interrupted" -eq 1 ] && [ "$failures" -eq 0 ]; then
+  say "Interrupted, nothing lost. Re-run this script to pick up where it stopped;"
+  say "it re-checks what is already on the disk and only fetches what is missing."
+  exit 130
+elif [ "$failures" -eq 0 ]; then
   say "Drive done. Next: ./scripts/05-copy-gmail.sh, then ./scripts/04-verify.sh"
 else
   say "$failures section(s) reported errors. Re-run to retry only what is missing,"
