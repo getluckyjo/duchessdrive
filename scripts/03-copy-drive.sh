@@ -16,10 +16,28 @@ need_rclone; need_remote; need_disk; need_accounts
 # Impersonation requires a service account. With a plain OAuth remote we can
 # only reach the one account that signed in - still worth running, since that
 # is bytes on the disk tonight rather than waiting for delegation.
-if rclone config show "$REMOTE" 2>/dev/null | grep -q '^service_account_file'; then
-  MODE=delegated
-else
-  MODE=self
+MODE=""
+for attempt in 1 2 3; do
+  cfg="$(rclone config show "$REMOTE" 2>/dev/null)"
+  if printf '%s' "$cfg" | grep -q '^service_account_file'; then MODE=delegated; break; fi
+  if printf '%s' "$cfg" | grep -q '^\[\?'"$REMOTE"; then MODE=self; break; fi
+  sleep 1
+done
+[ -n "$MODE" ] || die "Could not read the config for remote '$REMOTE' after 3 tries."
+
+n_accounts="$(awk -F'\t' '!/^#/ && $1 != "" {n++} END {print n+0}' "$ACCOUNTS")"
+say "remote=$REMOTE  mode=$MODE  accounts=$n_accounts"
+
+# A silent fall back to self mode once copied one account when four were asked
+# for, and reported success. If the two disagree now, stop and say so.
+if [ "$MODE" = self ] && [ "$n_accounts" -gt 1 ]; then
+  warn "Remote '$REMOTE' has no service account, but $ACCOUNTS lists $n_accounts accounts."
+  warn "Impersonation needs a service account, so this would quietly copy only one"
+  warn "of them and report success. Refusing."
+  die "Point REMOTE at the service-account remote, or set SELF_MODE=1 to copy just one account deliberately."
+fi
+if [ "$MODE" = self ]; then
+  SELF_EMAIL="${SELF_EMAIL:-$(awk -F'\t' '!/^#/ && $1 != "" {print $1; exit}' "$ACCOUNTS")}"
   SELF_EMAIL="${SELF_EMAIL:-johannes@theduchess.co.za}"
 fi
 mkdir -p "$LOG_DIR" "$BACKUP_DIR/drive"
@@ -43,8 +61,10 @@ FLAGS=(
   --stats-one-line
   --log-level INFO
   --log-file "$LOG"
-  --progress
 )
+# Only draw the live progress bar when attached to a terminal - detached runs
+# get their progress from --stats in the log instead of megabytes of escape codes.
+[ -t 1 ] && FLAGS+=(--progress)
 [ -n "$BWLIMIT" ] && FLAGS+=(--bwlimit "$BWLIMIT")
 
 do_copy() { # label, dest subdir, extra rclone args...
