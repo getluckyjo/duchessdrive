@@ -16,6 +16,12 @@ DEST_VOL="${1:-}"
 
 [ -n "$DEST_VOL" ] || die "Usage: $0 /Volumes/<destination> [\"folder name\"]"
 
+# Re-exec under caffeinate before the preflight, not after - otherwise every
+# check and the source measurement run twice.
+if [ -z "${UNDER_CAFFEINATE:-}" ] && command -v caffeinate >/dev/null 2>&1; then
+  UNDER_CAFFEINATE=1 exec caffeinate -dims "$0" "$@"
+fi
+
 SRC="$SRC_ROOT/$FOLDER"
 DEST="$DEST_VOL/$FOLDER"
 
@@ -52,10 +58,6 @@ fi
 ok "$((avail_bytes/1000000000)) GB free on the destination"
 
 # ---------- copy ----------
-if [ -z "${UNDER_CAFFEINATE:-}" ] && command -v caffeinate >/dev/null 2>&1; then
-  UNDER_CAFFEINATE=1 exec caffeinate -dims "$0" "$@"
-fi
-
 mkdir -p "$LOG_DIR" "$DEST"
 RUN="$(timestamp)"
 LOG="$LOG_DIR/handoff-$RUN.log"
