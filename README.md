@@ -133,7 +133,8 @@ Per-account quota, Shared Drives, and a real measurement of each Drive. Review
 
 ```bash
 ./scripts/03-copy-drive.sh     # ~266 GB
-./scripts/05-copy-gmail.sh     # ~110 GB, needs GYB installed
+./scripts/05a-install-gyb.sh   # once, for the Gmail tool
+./scripts/05-copy-gmail.sh     # ~110 GB
 ```
 
 Both are resumable — Ctrl-C and re-run. Both wrap themselves in `caffeinate`.
@@ -148,10 +149,14 @@ Lands as:
   shared-drives/<name>/
 ```
 
-Gmail needs **GYB (Got Your Back)** from
-<https://github.com/GAM-team/got-your-back/releases> — rclone has no mail
-backend. GYB uses the same service account and writes one `.eml` per message.
-`05-copy-gmail.sh` tells you this if it is missing.
+Gmail needs **GYB (Got Your Back)** — rclone has no mail backend at all.
+`05a-install-gyb.sh` resolves the right release for your Mac and installs it to
+`~/.local/bin`, no sudo and nothing piped into a shell. GYB uses the same
+service account and writes one `.eml` per message.
+
+Before downloading 110 GB, `05-copy-gmail.sh` runs a one-day estimate against
+the first mailbox to prove Gmail delegation actually works. If the Gmail scope
+was not authorised, you find out in seconds rather than after a long failure.
 
 At 100 Mbit/s, 375 GB is roughly 9 hours. Assume slower — small files never hit
 line rate, and a 231 GB Drive of small files is the slow case.
@@ -191,8 +196,10 @@ files per mailbox.
 | `scripts/00-check-access.sh` | Proves reads still work. Run first. |
 | `scripts/00-preflight.sh` | Disk and tooling checks. |
 | `scripts/01-configure-remote.sh` | rclone remote from the service account. |
+| `scripts/01a-fix-oauth-secret.sh` | Repairs an OAuth remote's client secret. |
 | `scripts/02-inventory.sh` | Sizes, Shared Drives. |
 | `scripts/03-copy-drive.sh` | Drive, all accounts. |
+| `scripts/05a-install-gyb.sh` | Installs GYB to `~/.local/bin`. Run once. |
 | `scripts/05-copy-gmail.sh` | Gmail, all accounts, via GYB. |
 | `scripts/04-verify.sh` | MD5 check + message counts. |
 

@@ -41,6 +41,15 @@ need_sa() {
   [ -f "$SA_FILE" ] || die "No service account key at $SA_FILE. See README step 3."
 }
 
+# GYB may be installed outside PATH by 05a-install-gyb.sh.
+find_gyb() {
+  if command -v gyb >/dev/null 2>&1; then command -v gyb; return 0; fi
+  for c in "$HOME/.local/bin/gyb" "/usr/local/bin/gyb" "/opt/homebrew/bin/gyb"; do
+    [ -x "$c" ] && { printf '%s' "$c"; return 0; }
+  done
+  return 1
+}
+
 need_disk() {
   [ -d "$DEST_ROOT" ] || die "$DEST_ROOT is not mounted. Plug the disk in."
   mount | grep -q " on $DEST_ROOT " || warn "$DEST_ROOT exists but is not a mount point - is the right disk attached?"

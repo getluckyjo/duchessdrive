@@ -12,7 +12,7 @@ fi
 
 need_sa; need_disk; need_accounts
 
-if ! command -v gyb >/dev/null 2>&1; then
+if ! GYB="$(find_gyb)"; then
   warn "GYB is not installed."
   cat <<'MSG'
 
@@ -20,20 +20,19 @@ if ! command -v gyb >/dev/null 2>&1; then
      local disk. It is maintained by the GAM team and uses the Gmail API, so it
      works with the same service account you already set up.
 
-     Download the macOS release from:
-       https://github.com/GAM-team/got-your-back/releases
+     Install it with:
 
-     Unpack it and put the `gyb` binary somewhere on your PATH, for example:
-       sudo mv ~/Downloads/gyb/gyb /usr/local/bin/gyb
+       ./scripts/05a-install-gyb.sh
 
-     The project also publishes a one-line curl-pipe-bash installer. It works,
-     but it runs a downloaded script as your user - your call whether that is
-     acceptable for a machine holding company data. The release download does
-     the same job with one more step.
+     That resolves the right release for your Mac, downloads it and puts the
+     binary in ~/.local/bin - no sudo, nothing piped into a shell.
+
+     Or do it by hand from https://github.com/GAM-team/got-your-back/releases
 
 MSG
   die "Install gyb, then re-run this script."
 fi
+ok "using $GYB"
 
 mkdir -p "$GYB_CONFIG" "$LOG_DIR" "$BACKUP_DIR/gmail"
 if [ ! -f "$GYB_CONFIG/oauth2service.json" ]; then
@@ -41,6 +40,30 @@ if [ ! -f "$GYB_CONFIG/oauth2service.json" ]; then
   chmod 600 "$GYB_CONFIG/oauth2service.json"
   ok "placed the service account key where GYB expects it"
 fi
+
+# Prove delegation works on one mailbox before committing to ~110 GB. A
+# one-day search keeps it to seconds while still exercising auth end to end.
+FIRST="$(awk -F'\t' '!/^#/ && $1 != "" {print $1; exit}' "$ACCOUNTS")"
+say "Checking Gmail delegation against $FIRST"
+if out="$("$GYB" --email "$FIRST" --action estimate --service-account \
+           --config-folder "$GYB_CONFIG" --search "newer_than:1d" 2>&1)"; then
+  ok "delegation works"
+  printf '%s\n' "$out" | tail -3 | sed 's/^/     /'
+else
+  printf '%s\n' "$out" | sed 's/^/     /' | tail -12
+  echo
+  if printf '%s' "$out" | grep -qiE "unauthorized|insufficient|scope|delegation|invalid_grant"; then
+    die "Gmail delegation is not authorised. Add this scope to the service account
+     in Admin console -> Security -> Access and data control -> API controls
+     -> Manage Domain Wide Delegation:
+
+       https://www.googleapis.com/auth/gmail.readonly
+
+     The Gmail API also has to be enabled in the Cloud project."
+  fi
+  die "Could not read $FIRST. Send me the error above."
+fi
+echo
 
 RUN="$(timestamp)"
 LOG="$LOG_DIR/gmail-$RUN.log"
@@ -57,7 +80,7 @@ gmail_one() {
   mkdir -p "$dest"
   echo
   say "Gmail: $email (~${mgb} GB)  ->  $dest"
-  if gyb --email "$email" --action backup --service-account \
+  if "$GYB" --email "$email" --action backup --service-account \
          --config-folder "$GYB_CONFIG" --local-folder "$dest" 2>&1 | tee -a "$LOG"; then
     ok "$email complete"
   else
