@@ -202,7 +202,37 @@ files per mailbox.
 | `scripts/05a-install-gyb.sh` | Installs GYB to `~/.local/bin`. Run once. |
 | `scripts/05-copy-gmail.sh` | Gmail, all accounts, via GYB. |
 | `scripts/04-verify.sh` | MD5 check + message counts. |
+| `scripts/06-handoff-copy.sh` | Copy one folder to another drive, to hand over. |
 
 The rclone config lives at `~/.config/rclone/rclone.conf` and the service
 account key at `~/.config/duchess-backup/service-account.json`. **Both are
 credentials — not in this repo, not on the backup disk.**
+
+---
+
+## Handing a folder to someone on a drive
+
+Disk to disk, no Google involved:
+
+```bash
+./scripts/06-handoff-copy.sh /Volumes/TheirDrive
+./scripts/06-handoff-copy.sh /Volumes/TheirDrive "The Duchess Sales"
+```
+
+Defaults to `1 Suncamino Rum ` from `inus@theduchess.co.za` — note that folder
+name genuinely ends in a space.
+
+It refuses a FAT32 destination (4 GB file ceiling), refuses to copy a drive
+onto itself, checks free space against the measured source, copies resumably,
+then verifies **every file by MD5 on both drives**.
+
+If verification reports differences, read the reason before re-running. Missing
+files are fixed by a plain re-run. A file whose contents drifted while its size
+and timestamp stayed the same is *not* — `rclone copy` compares size and modtime
+and will skip it forever. For that, `REPAIR=1` forces a checksum comparison:
+
+```bash
+REPAIR=1 ./scripts/06-handoff-copy.sh /Volumes/TheirDrive
+```
+
+Eject before unplugging: `diskutil eject /Volumes/TheirDrive`.
