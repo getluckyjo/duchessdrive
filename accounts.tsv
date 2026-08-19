@@ -1,5 +1,9 @@
 # email	drive_gb	gmail_gb   -- delete a line to skip that account
 inus@theduchess.co.za	231.08	44.58
 johannes@theduchess.co.za	33.03	50.14
-sebastian@drinkdope.com	1.47	5.43
-johannes@drinkdope.com	0.23	9.40
+# UNLICENSED 2026-08-19 - Drive API returns 401 "Active session is invalid".
+# Assign a Workspace licence to this account, then uncomment.
+#sebastian@drinkdope.com	1.47	5.43
+# UNLICENSED 2026-08-19 - Drive API returns 401 "Active session is invalid".
+# Assign a Workspace licence to this account, then uncomment.
+#johannes@drinkdope.com	0.23	9.40
