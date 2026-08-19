@@ -67,10 +67,24 @@ FLAGS=(
 [ -t 1 ] && FLAGS+=(--progress)
 [ -n "$BWLIMIT" ] && FLAGS+=(--bwlimit "$BWLIMIT")
 
+# rclone writes to "<name>.<8 hex>.partial" then renames. Workers killed
+# mid-write leave theirs behind, with a fresh random suffix every run, so they
+# accumulate forever across interruptions. Clear them before starting.
+clean_partials() {
+  d="$1"
+  [ -d "$d" ] || return 0
+  list="$(find "$d" -type f -name '*.partial' 2>/dev/null | grep -E '\.[0-9a-f]{8}\.partial$')"
+  [ -n "$list" ] || return 0
+  n="$(printf '%s\n' "$list" | wc -l | tr -d ' ')"
+  say "Clearing $n orphaned .partial file(s) left by an interrupted run"
+  printf '%s\n' "$list" | while IFS= read -r f; do [ -n "$f" ] && rm -f "$f"; done
+}
+
 do_copy() { # label, dest subdir, extra rclone args...
   label="$1"; sub="$2"; shift 2
   dest="$BACKUP_DIR/$sub"
   mkdir -p "$dest"
+  clean_partials "$dest"
   echo
   say "$label  ->  $dest"
   if rclone copy "${REMOTE}:" "$dest" "${FLAGS[@]}" "$@" </dev/null; then
