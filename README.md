@@ -203,6 +203,7 @@ files per mailbox.
 | `scripts/05-copy-gmail.sh` | Gmail, all accounts, via GYB. |
 | `scripts/04-verify.sh` | MD5 check + message counts. |
 | `scripts/06-handoff-copy.sh` | Copy one folder to another drive, to hand over. |
+| `scripts/07-overlap-report.sh` | What is on the disk, and how much of an account is new. |
 
 The rclone config lives at `~/.config/rclone/rclone.conf` and the service
 account key at `~/.config/duchess-backup/service-account.json`. **Both are
@@ -236,3 +237,34 @@ REPAIR=1 ./scripts/06-handoff-copy.sh /Volumes/TheirDrive
 ```
 
 Eject before unplugging: `diskutil eject /Volumes/TheirDrive`.
+
+---
+
+## Before adding another account
+
+Accounts share folders in Drive, so the same file lands on the disk under
+several people. Before spending hours fetching an account, see how much of it
+you would actually be adding:
+
+```bash
+./scripts/07-overlap-report.sh                          # what is on the disk now
+./scripts/07-overlap-report.sh design@theduchess.co.za  # how much of that is new
+```
+
+The first form indexes every file already on the disk and reports per-account
+totals, how much is held more than once, and how much distinct content there
+really is. The index is cached in `inventory/local-index.tsv`; `REFRESH=1`
+rebuilds it after new downloads.
+
+With an email it also lists that account's Drive — listing only, nothing is
+downloaded — and reports how much is already present under another account.
+
+Matching is by filename and exact byte size, not by content hash. Two different
+files could collide, so treat the figure as a good estimate rather than proof.
+
+### Archived accounts are reachable
+
+Archived users cannot sign in, but domain-wide delegation reaches their Drive
+and Gmail regardless. No licence purchase and no Vault export is needed - the
+same scripts work by adding a line to `accounts.tsv`. Verified against
+`tania@` and `design@`.
