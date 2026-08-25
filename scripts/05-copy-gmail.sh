@@ -80,8 +80,12 @@ gmail_one() {
   mkdir -p "$dest"
   echo
   say "Gmail: $email (~${mgb} GB)  ->  $dest"
+  # --fast-incremental skips re-reading labels for messages already on disk.
+  # On a resumed mailbox that is most of the work, and this is an archival
+  # copy - the labels captured at first download are the ones we keep.
   if "$GYB" --email "$email" --action backup --service-account \
-         --config-folder "$GYB_CONFIG" --local-folder "$dest" 2>&1 | tee -a "$LOG"; then
+         --config-folder "$GYB_CONFIG" --local-folder "$dest" \
+         ${GYB_EXTRA:---fast-incremental} 2>&1 | tee -a "$LOG"; then
     ok "$email complete"
   else
     code=$?

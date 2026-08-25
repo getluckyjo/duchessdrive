@@ -72,6 +72,9 @@ FLAGS=(
 # accumulate forever across interruptions. Clear them before starting.
 clean_partials() {
   d="$1"
+  # Walking a large tree on exFAT costs minutes. SKIP_PARTIAL_CLEAN=1 skips
+  # it when a sweep has already proven this destination clean.
+  [ -n "${SKIP_PARTIAL_CLEAN:-}" ] && return 0
   [ -d "$d" ] || return 0
   list="$(find "$d" -type f -name '*.partial' 2>/dev/null | grep -E '\.[0-9a-f]{8}\.partial$')"
   [ -n "$list" ] || return 0
