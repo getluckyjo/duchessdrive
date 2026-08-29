@@ -205,7 +205,7 @@ files per mailbox.
 | `scripts/06-handoff-copy.sh` | Copy one folder to another drive, to hand over. |
 | `scripts/07-overlap-report.sh` | What is on the disk, and how much of an account is new. |
 | `scripts/08-export-blocked.sh` | Lists the Google Docs Drive refuses to export. |
-| `scripts/09-dedupe.sh` | Removes copies of a file held under more than one account. |
+| `scripts/09-dedupe.sh` | Removes redundant copies once a file spans two accounts. |
 | `scripts/10-clear-dumps.sh` | Clears the redundant half of the ex-staff Drive dumps. |
 
 The rclone config lives at `~/.config/rclone/rclone.conf` and the service
@@ -317,7 +317,18 @@ Interrupting is safe — it stops between files, and re-running resumes.
 ```
 
 The general case: any file held under more than one account. The first account
-in `KEEP_ORDER` keeps its copy, the rest go. It writes
+in `KEEP_ORDER` keeps its copy, the rest go.
+
+Note what "the rest" means. The two-account test decides *whether* a file is in
+scope, but once it is, **every copy but one goes — including repeats inside a
+single account**. A file filed deliberately in two project folders under the
+same account keeps only one of them. Nothing is lost, since deletion always
+requires a surviving MD5-identical twin, but folders do lose files that were
+put there on purpose. On 2026-08-29 this was the difference between the
+137.4 GiB `07-overlap-report.sh` predicted and the 254.7 GiB actually
+reclaimed: the report counts accounts holding a file, not copies of it.
+
+It writes
 `inventory/dedupe-plan.tsv` for you to read before executing, caches hashes so
 an interrupted run resumes, and re-checks both copies at the moment of deletion
 in case the plan has gone stale.
