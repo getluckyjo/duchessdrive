@@ -57,6 +57,19 @@ say "Run $RUN   log: $LOG"
 echo "     Drive files are compared by MD5. Google-native docs are excluded:"
 echo "     an exported .docx legitimately differs from the Google Doc."
 
+# After 09-dedupe.sh or 10-clear-dumps.sh, a file that exists once on the disk
+# still exists under every account that shared it upstream. This check is
+# --one-way, so each removed copy is reported as missing from the disk. That is
+# the cleanup working, not a damaged backup - and re-running 03-copy-drive.sh
+# would dutifully download every one of them again.
+if ls "$LOG_DIR"/dedupe-*.log "$LOG_DIR"/clear-dumps-*.log >/dev/null 2>&1; then
+  n=$(cat "$LOG_DIR"/dedupe-*.log "$LOG_DIR"/clear-dumps-*.log 2>/dev/null | grep -ac '^DELETED' || true)
+  echo
+  warn "Space has been reclaimed on this disk: ${n:-0} file(s) deliberately deleted."
+  warn "Expect that many 'missing' results below. They are not data loss, and"
+  warn "re-running 03-copy-drive.sh WILL re-download them. Read $LOG before acting."
+fi
+
 if [ "$MODE" = delegated ]; then
   check_account() {
     email="$1"
