@@ -204,6 +204,9 @@ files per mailbox.
 | `scripts/04-verify.sh` | MD5 check + message counts. |
 | `scripts/06-handoff-copy.sh` | Copy one folder to another drive, to hand over. |
 | `scripts/07-overlap-report.sh` | What is on the disk, and how much of an account is new. |
+| `scripts/08-export-blocked.sh` | Lists the Google Docs Drive refuses to export. |
+| `scripts/09-dedupe.sh` | Removes copies of a file held under more than one account. |
+| `scripts/10-clear-dumps.sh` | Clears the redundant half of the ex-staff Drive dumps. |
 
 The rclone config lives at `~/.config/rclone/rclone.conf` and the service
 account key at `~/.config/duchess-backup/service-account.json`. **Both are
@@ -268,3 +271,61 @@ Archived users cannot sign in, but domain-wide delegation reaches their Drive
 and Gmail regardless. No licence purchase and no Vault export is needed - the
 same scripts work by adding a line to `accounts.tsv`. Verified against
 `tania@` and `design@`.
+
+---
+
+## Reclaiming space on the disk
+
+Accounts share folders, so the same file lands on the disk several times over.
+Two scripts remove the surplus. **Both delete on an MD5 match only** — matching
+on filename and size alone is about 0.7% wrong, which over 55,000 files would
+destroy a few hundred real documents. Both report by default and need
+`--execute` before anything is removed, and exFAT has no undelete.
+
+Run `./scripts/07-overlap-report.sh` first — both scripts read its index.
+
+### The ex-staff dumps — start here
+
+When people left, their whole Drive was transferred into a colleague's account
+rather than filed anywhere. Those 14 dumps are **424.9 GiB, 41% of the disk**,
+and 404.6 GiB of it is a second copy of a file that also sits in a normal
+project folder. `marike@` alone is 248.8 GiB and 96% duplicated.
+
+```bash
+./scripts/10-clear-dumps.sh              # sample 300 pairs and report
+./scripts/10-clear-dumps.sh --execute    # verify and delete, one file at a time
+```
+
+This is deliberately narrower than `09-dedupe.sh`: a file goes only when an
+identical copy exists **outside every dump**, so the survivor is always a live
+project file and never another dump. Unique files inside a dump stay put —
+clearing the redundant part is not deleting the dumps.
+
+Verification earns its keep here. A 300-pair sample of these candidates differed
+3.3% of the time, five times the rate elsewhere; the dumps are thick with
+exported Google Docs, where equal size routinely hides different bytes. Across
+56,222 candidates that is roughly 1,900 real documents an unverified pass would
+have destroyed.
+
+Interrupting is safe — it stops between files, and re-running resumes.
+
+### Everything else
+
+```bash
+./scripts/09-dedupe.sh              # hash, verify, write a plan, delete nothing
+./scripts/09-dedupe.sh --execute    # carry out that plan
+```
+
+The general case: any file held under more than one account. The first account
+in `KEEP_ORDER` keeps its copy, the rest go. It writes
+`inventory/dedupe-plan.tsv` for you to read before executing, caches hashes so
+an interrupted run resumes, and re-checks both copies at the moment of deletion
+in case the plan has gone stale.
+
+After either script, the index is stale. Rebuild it and clear the empty
+directories left behind:
+
+```bash
+find /Volumes/Duchess/theduchess-backup/drive -type d -empty -delete
+REFRESH=1 ./scripts/07-overlap-report.sh
+```
