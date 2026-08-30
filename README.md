@@ -131,6 +131,16 @@ Per-account quota, Shared Drives, and a real measurement of each Drive. Review
 
 ## Step 5 — Copy
 
+> **This disk is an archive now, not a mirror.** The cleanup scripts removed
+> ~649 GiB of duplicate copies, so a file shared by three accounts upstream
+> exists here once. `rclone copy` compares against the live account and does
+> not know that: **re-running the copy would re-download every reclaimed
+> duplicate** and undo the cleanup, slowly and while looking like a repair.
+> Steps 1–5 are the original build of the backup, kept for reference and for
+> `sebastian@drinkdope.com` if it is ever licensed. To check the archive is
+> sound, use step 6 — it needs no Google account at all.
+
+
 ```bash
 ./scripts/03-copy-drive.sh     # ~266 GB
 ./scripts/05a-install-gyb.sh   # once, for the Gmail tool
@@ -179,12 +189,38 @@ faithful archival copies of the native docs, that is a different job.
 ## Step 6 — Verify
 
 ```bash
-./scripts/04-verify.sh
+./scripts/04-verify.sh --build    # record what is on the disk
+./scripts/04-verify.sh            # re-hash everything and compare
+./scripts/04-verify.sh --quick    # size and mtime only; minutes, not hours
 ```
 
-MD5-compares every Drive file against the live account (Google-native docs
-excluded, since their exported form legitimately differs), and counts the `.eml`
-files per mailbox.
+Checks the archive against `MANIFEST.tsv`, which lives on the disk beside it.
+No Google account is involved, and none needs to exist.
+
+**This used to compare against the live accounts, and no longer can.** While
+the disk was a mirror, `rclone check --one-way` per account was the right test.
+After `10-clear-dumps.sh` and `09-dedupe.sh`, a file shared by three accounts
+upstream exists here once, deliberately — so that check reported tens of
+thousands of intentional reclamations as missing files, and the obvious cure
+(re-running `03-copy-drive.sh`) would have silently undone the cleanup. The old
+check also assumed a Workspace org that is on its way out; the subscription is
+already cancelled, and a check that needs Google to answer is a check with an
+expiry date.
+
+What it can no longer tell you is whether the archive matches the accounts.
+That question retires with them. What it catches instead is what actually
+threatens an archive on an external disk: bit rot, a bad cable, a truncated
+file, an interrupted write, a deletion nobody meant.
+
+Run `--build` once after any deliberate change — a new download, a cleanup
+pass — and plain `04-verify.sh` whenever you want to know the disk is still
+sound. Keep `MANIFEST.tsv.md5` beside it; the manifest is the thing being
+trusted, so it is checksummed too and the check says so if it has drifted.
+
+On a read-only archive, **`changed` means corruption, not an edit.**
+
+Gmail message counts are no longer printed here — `.eml` files are covered by
+the manifest like everything else.
 
 ---
 
@@ -201,7 +237,7 @@ files per mailbox.
 | `scripts/03-copy-drive.sh` | Drive, all accounts. |
 | `scripts/05a-install-gyb.sh` | Installs GYB to `~/.local/bin`. Run once. |
 | `scripts/05-copy-gmail.sh` | Gmail, all accounts, via GYB. |
-| `scripts/04-verify.sh` | MD5 check + message counts. |
+| `scripts/04-verify.sh` | Manifest build + integrity check. No Google needed. |
 | `scripts/06-handoff-copy.sh` | Copy one folder to another drive, to hand over. |
 | `scripts/07-overlap-report.sh` | What is on the disk, and how much of an account is new. |
 | `scripts/08-export-blocked.sh` | Lists the Google Docs Drive refuses to export. |
