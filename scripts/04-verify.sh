@@ -76,6 +76,25 @@ def human(b):
         if b >= d: return "%.1f %s" % (b / d, u)
     return "%d B" % b
 
+# Real filenames here contain tabs (an exported Sheet named
+# "... March 2018 - February 2019\t.xlsx"). Skipping them would leave files the
+# manifest never covers, which is worse than a slightly less readable file, so
+# the path column is escaped rather than the file dropped.
+def enc(p):
+    return p.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
+
+def dec(p):
+    out = []; i = 0
+    while i < len(p):
+        c = p[i]
+        if c == "\\" and i + 1 < len(p):
+            n = p[i+1]
+            out.append("\t" if n == "t" else "\n" if n == "n" else n)
+            i += 2
+        else:
+            out.append(c); i += 1
+    return "".join(out)
+
 def md5(path):
     h = hashlib.md5()
     with open(path, "rb") as f:
@@ -93,11 +112,6 @@ def walk(root):
             full = os.path.join(dirpath, fn)
             rel = os.path.relpath(full, root)
             if rel in SKIP_SELF: continue
-            # A tab or newline in a name would corrupt the manifest. None have
-            # been seen here, but say so rather than write a broken line.
-            if "\t" in rel or "\n" in rel:
-                sys.stderr.write("  !! skipping unrepresentable path: %r\n" % rel)
-                continue
             yield rel, full
 
 def load(path):
@@ -108,7 +122,7 @@ def load(path):
             if line.startswith("#"): continue
             p = line.rstrip("\n").split("\t")
             if len(p) < 4: continue
-            try: out[p[3]] = (p[0], int(p[1]), int(p[2]))
+            try: out[dec(p[3])] = (p[0], int(p[1]), int(p[2]))
             except ValueError: pass
     return out
 
@@ -151,7 +165,7 @@ if mode == "build":
             log.write("UNREADABLE\t%s\t%s\n" % (rel, e))
             continue
         sz, mt = stats[rel]
-        out.write("%s\t%d\t%d\t%s\n" % (h, sz, mt, rel))
+        out.write("%s\t%d\t%d\t%s\n" % (h, sz, mt, enc(rel)))
         n += 1; hashed_bytes += sz
         if n % 500 == 0:
             out.flush()
@@ -174,7 +188,7 @@ if mode == "build":
     tmp.write("# md5\tsize\tmtime\tpath\n")
     for rel in sorted(entries):
         h, sz, mt = entries[rel]
-        tmp.write("%s\t%d\t%d\t%s\n" % (h, sz, mt, rel))
+        tmp.write("%s\t%d\t%d\t%s\n" % (h, sz, mt, enc(rel)))
     tmp.close()
     os.replace(tmp.name, manifest)
     try: os.unlink(PARTIAL)
